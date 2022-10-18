@@ -1,0 +1,165 @@
+---
+title: "Mindfulness Adherence Questionnaire"
+author: "Maurício Bueno"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float:
+      collapsed: no
+  word_document:
+    toc: yes
+editor_options:
+  chunk_output_type: console
+---
+
+```{r echo=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+# Carregar pacotes
+```{r}
+library(readxl)
+library(tidyverse)
+library(knitr)
+library(pander)
+library(psych)
+# install.packages("lavaan")
+library(lavaan)
+# install.packages("semPlot")
+library(semPlot)
+library(GPArotation)
+
+```
+
+
+# Importar e preparar bancos de dados
+```{r}
+df1 <- read_excel("MAQ_database.xlsx", col_names = TRUE)
+
+view(df1)
+names(df1)
+# df1 <- df1 %>% select(-c(2,3))
+
+# Renomear colunas do dataframe
+df2 <- 
+df1 %>% rename_with(.cols = c(1:3,6,9:13,14:57,58:78,79:93,94:132,133:144),
+                    .fn=~c(c("data_hora","nome_completo","e_mail"),"cor",
+                           c('renda','problema_crônico_saúde','medicamento',
+                             'pratica_mindfulness','há_quanto_tempo'),
+                             paste("bfi_",1:44,sep = ""),
+                             paste("dass",1:21,sep = ""),
+                             paste("maas",1:15,sep = ""),
+                             paste("ffmq",1:39,sep = ""),
+                             paste("maq_",1:12,sep = "")
+                             ))
+
+names(df2)
+```
+
+# AFE
+```{r}
+df2 %>% select(135:144) %>% KMO
+df2 %>% select(135:144) %>% scree()      # indica 2 fatores
+df2 %>% select(135:144) %>% fa.parallel()# indica 1 fator
+
+df2 %>% select(135:144) %>% principal(nfactors = 2, rotate = "oblimin")
+```
+
+# AFE2
+```{r}
+poly_R <- R %>% polychoric(.)   # matriz de correlações policóricas para análise paralela.
+rho_R <- poly_R$rho # guardando apenas o Rho de Spearman da matriz de correlações policóricas
+scree_R<-scree(rho_R)
+
+pa_R <- fa.parallel(rho_R, n.obs=2000, fa="fa") # análise paralela sobre a matriz de correlações policóricas
+pa_R$fa.values #mostra os eigenvalues com os dados experimentais
+pa_R$fa.sim #mostra os eigenvalues com os dados simulados
+
+# ===========
+# Correlações policóricas
+maq_poly <- df2 %>% select(maq_3:maq_12) %>% polychoric(.)
+
+# Scree-plot usando as correlações com dados ordinais (rho)
+scree(maq_poly$rho)
+
+fa.parallel(maq_poly$rho, n.obs = nrow(df2))
+
+# KMO usando as correlações com dados ordinais (rho)
+KMO(maq_poly$rho)
+
+# Análise de componentes principais, impondo-se a extração de dois fatores.
+
+principal(maq_poly$rho, n.obs = nrow(df2), nfactors = 2, rotate = "promax")
+
+# Análise de componentes principais, impondo-se a extração de um fator.
+
+principal(maq_poly$rho, n.obs = nrow(df2), nfactors = 1, rotate = "bifactor")
+```
+
+
+# AFC
+```{r}
+# Modelo (tem que selecionar todo o código pra rodar a análise)
+cfa_mod1 <- 'form =~ maq_3+maq_4+maq_5+maq_6
+info =~ maq_7+maq_8+maq_9+maq_10+maq_11+maq_12'
+
+# Análise
+cfa_fit1 <- cfa_mod1 %>% cfa(data=df2, estimator='DWLS', orthogonal=FALSE, ordered=TRUE)
+
+# Índices de ajuste
+cfa_res1 <- summary(cfa_fit1, standardized=TRUE, fit.measures=TRUE, modindices=TRUE)
+
+summary(cfa_fit1, standardized = TRUE)
+
+# Pode-se escolher os índices de ajuste desejados...
+
+cfa_fit1 %>% 
+  fitMeasures(fit.measures = c('chisq','df',"pvalue",'gfi','cfi','tli','rmsea',
+                               'rmsea.ci.lower','rmsea.ci.upper','srmr',"aic",'bic','ecvi')) %>% 
+  pander()
+
+# ... ou pedir todos os índices de ajuste
+cfa_fit1 %>% fitmeasures(fit.measures = "all")
+```
+
+# Índices de Modificação
+```{r}
+# pedindo para organizar pelo epc (expected parameter change)
+# esse índice indica as modificações que mais mudariam os índices de ajuste do modelo.
+
+cfa_maq %>% modindices() %>% arrange(desc(epc))
+```
+
+# Plot do Modelo
+```{r}
+semPaths(cfa_fit1,
+         whatLabels = "std",
+         intercepts = FALSE,
+         residuals = TRUE,
+         edge.label.cex = 1.0,
+         layout = 'tree',
+         rotation = 2,
+         edge.color = 'darkblue',
+         color = list(lat='cornflowerblue', man = 'hotpink'),
+         asize = 1.5,
+         normalize=FALSE)
+```
+
+# Salvar escores da AFC
+```{r}
+cfa_scor <- data.frame(lavPredict(cfa_fit1, type = "lv", method = "regression"))
+```
+
+
+# Fidedignidade
+```{r}
+names(df2)
+
+# Fator Prática Formal
+df2 %>% select(135:138) %>% omega() 
+
+# Fator Prática Informal
+df2 %>% select(139:144) %>% omega()
+```
+
